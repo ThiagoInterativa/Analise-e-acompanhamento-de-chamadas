@@ -5,6 +5,11 @@ from datetime import datetime
 import time
 from collections import Counter, defaultdict
 
+st.set_page_config(
+    page_title="Análise de Chamadas",
+    layout="wide"
+)
+
 # ===== CONFIGURACIONAL =====
 login_url = "https://pabx.evence.com.br/login"
 cdr_url = "https://pabx.evence.com.br/cdr/pesquisar"
