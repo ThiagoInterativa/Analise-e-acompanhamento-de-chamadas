@@ -12,7 +12,6 @@ cdr_url = "https://pabx.evence.com.br/cdr/pesquisar"
 email = "suporte@interativanet.com.br"
 senha = "smk03657"
 
-
 # =========================================================
 # SESSÃO REUTILIZÁVEL (Evita múltiplos logins no servidor PABX)
 # =========================================================
@@ -124,7 +123,6 @@ def buscar_cdr(data_inicio, data_fim, progress_ui=None):
         for row in rows:
             cols = row.find_all("td")
 
-            # MANUTENÇÃO FUTURA: Estrutura da Tabela do HTML:
             # 0: Data/Hora, 1: Num. Virtual, 2: Bina (Cliente), 3: Origem,
             # 4: Destino (Técnico), 5: Duração, 6: Status, 7: Tipo
             if len(cols) >= 8:
@@ -166,30 +164,33 @@ def buscar_cdr(data_inicio, data_fim, progress_ui=None):
 # PROCESSAMENTO DE KPIS E INSIGHTS
 # =========================================================
 def analisar_dados(dados):
-    # Total Bruto (Bate 100% com o painel do PABX)
+    # Total Bruto de chamadas capturadas do PABX
     total_chamadas_bruto = len(dados) 
     
     if total_chamadas_bruto == 0:
         return None
 
-    # Chamadas efetivamente atendidas por um técnico (para cálculo do TMA e Desempenho)
+    # Chamadas efetivamente atendidas por um técnico
     dados_validos = [d for d in dados if "Fila" not in d["tecnico"]]
     total_atendidas_tecnicos = len(dados_validos)
     
+    # [CORREÇÃO]: Soma de segundos calculada antes da conversão para texto
+    segundos_totais = sum(d["segundos"] for d in dados_validos)
+
     # Formatação de Tempo Total acumulado
     horas = int(segundos_totais // 3600)
     minutos = int((segundos_totais % 3600) // 60)
     tempo_total_fmt = f"{horas}h {minutos}m"
 
     # Cálculo do Tempo Médio de Atendimento (TMA)
-    tma_seg = int(round(segundos_totais / len(dados_validos))) if dados_validos else 0
+    tma_seg = int(round(segundos_totais / total_atendidas_tecnicos)) if total_atendidas_tecnicos > 0 else 0
     tma_fmt = f"{tma_seg // 60:02d}:{tma_seg % 60:02d}"
 
     # LÓGICA DE REINCIDÊNCIA: Contagem por telefone cliente (Bina)
     contagem_clientes = Counter([d["bina"] for d in dados_validos if d["bina"]])
     clientes_reincidentes = {k: v for k, v in contagem_clientes.items() if v > 1}
 
-    # MANUTENÇÃO FUTURA: Identificação de chamadas curtas (< 10s)
+    # Identificação de chamadas curtas (< 10s)
     ligacoes_curtas = [
         {
             "Telefone (Bina)": d["bina"],
@@ -232,8 +233,10 @@ def analisar_dados(dados):
 
     ranking_tecnicos.sort(key=lambda x: x["Total Chamadas"], reverse=True)
 
+    # [CORREÇÃO]: Retorno correto das variáveis atualizadas
     return {
-        "total_chamadas": total_chamadas,
+        "total_chamadas_bruto": total_chamadas_bruto,
+        "total_atendidas": total_atendidas_tecnicos,
         "tempo_total_fmt": tempo_total_fmt,
         "tma_fmt": tma_fmt,
         "contagem_clientes": contagem_clientes,
@@ -241,17 +244,15 @@ def analisar_dados(dados):
         "fragmentados": clientes_fragmentados,
         "tempo_por_cliente": tempo_por_cliente,
         "ranking_tecnicos": ranking_tecnicos,
-        "ligacoes_curtas": ligacoes_curtas  # Nova métrica
+        "ligacoes_curtas": ligacoes_curtas
     }
 
 # =========================================================
 # INTERFACE GRÁFICA (Streamlit)
 # =========================================================
-st.set_page_config(page_title="Análise CDR - PABX", layout="wide")
-
 st.title("📊 Análise de Chamadas e Insights Estratégicos")
 
-# Formulário de entrada - Somente filtros por data e botão consultar
+# Formulário de entrada
 with st.form("form_filtro"):
     col1, col2, col3 = st.columns([2, 2, 1])
 
@@ -283,15 +284,16 @@ if submit:
                 analise = analisar_dados(dados)
 
                 # 1. RESUMO EXECUTIVO
-
                 st.subheader("📌 Resumo Executivo")
                 c1, c2, c3, c4 = st.columns(4)
 
-# Exibe o Total do PABX e quantas foram direcionadas a técnicos
-                c1.metric("Total de Chamadas (PABX)", f"{analise['total_chamadas']} chamadas")
-                c2.metric("Chamadas Atendidas", f"{len([d for d in dados if 'Fila' not in d['tecnico']])}")
-                
-                
+                c1.metric("Total de Chamadas (PABX)", f"{analise['total_chamadas_bruto']}")
+                c2.metric("Atendidas por Técnicos", f"{analise['total_atendidas']}")
+                c3.metric("Tempo Total Falado", analise["tempo_total_fmt"])
+                c4.metric("TMA Médio", analise["tma_fmt"])
+
+                st.divider()
+
                 # 2. SEÇÃO DE LIGAÇÕES CURTAS (< 10s)
                 st.subheader("⏱️ Ligações Curtas (Menos de 10 segundos)")
                 st.caption("Chamadas encerradas rapidamente. Podem indicar quedas de linha ou enganos.")
@@ -331,7 +333,7 @@ if submit:
 
                 with col_right:
                     st.markdown("### 🔀 Fragmentação no Atendimento")
-                    st.caption("Clientes que falaram com mais de um funcionário diferençado.")
+                    st.caption("Clientes que falaram com mais de um funcionário diferente.")
 
                     if analise["fragmentados"]:
                         tabela_fragmentacao = []
