@@ -5,15 +5,16 @@ from datetime import datetime
 import time
 from collections import Counter, defaultdict
 
-# ===== CONFIG =====
+# ===== CONFIGURACIONAL =====
 login_url = "https://pabx.evence.com.br/login"
 cdr_url = "https://pabx.evence.com.br/cdr/pesquisar"
 
 email = "suporte@interativanet.com.br"
 senha = "smk03657"
 
+
 # =========================================================
-# SESSÃO REUTILIZÁVEL
+# SESSÃO REUTILIZÁVEL (Evita múltiplos logins no servidor PABX)
 # =========================================================
 @st.cache_resource
 def get_session():
@@ -24,7 +25,7 @@ def get_session():
     return session
 
 # =========================================================
-# LOGIN NO PABX
+# LOGIN NO PABX (Com busca dinâmica de CSRF token)
 # =========================================================
 def login_pabx():
     session = get_session()
@@ -49,7 +50,7 @@ def login_pabx():
         raise Exception("Erro no login")
 
 # =========================================================
-# RETRY
+# RETRY (Tratamento para instabilidades de rede)
 # =========================================================
 def request_com_retry(session, url, params, headers, tentativas=4):
     for i in range(tentativas):
@@ -61,7 +62,7 @@ def request_com_retry(session, url, params, headers, tentativas=4):
             time.sleep(2)
 
 # =========================================================
-# BUSCA CDR (EXTRAI NÚMERO DE ORIGEM)
+# BUSCA E PARSING DO CDR (Ajustado para a estrutura HTML real)
 # =========================================================
 def buscar_cdr(data_inicio, data_fim, progress_ui=None):
     session = login_pabx()
@@ -123,16 +124,17 @@ def buscar_cdr(data_inicio, data_fim, progress_ui=None):
         for row in rows:
             cols = row.find_all("td")
 
-            # Mapeamento assumindo padrão de tabela CDR HTML:
-            # ex: cols[1]=Origem, cols[4]=Técnico/Destino, cols[5]=Duração
-            if len(cols) >= 6:
-                cliente = cols[1].get_text(strip=True) if len(cols) > 1 else "Desconhecido"
-                tecnico = cols[4].get_text(strip=True)
-                duracao = cols[5].get_text(strip=True)
+            # MANUTENÇÃO FUTURA: Estrutura da Tabela do HTML:
+            # 0: Data/Hora, 1: Num. Virtual, 2: Bina (Cliente), 3: Origem,
+            # 4: Destino (Técnico), 5: Duração, 6: Status, 7: Tipo
+            if len(cols) >= 8:
+                bina = cols[2].get_text(strip=True)       # Telefone do cliente
+                tecnico = cols[4].get_text(strip=True)    # Destino / Atendente
+                duracao = cols[5].get_text(strip=True)    # Duração (HH:MM:SS)
+                status = cols[6].get_text(strip=True)     # ex: Atendida, Abandonada
+                tipo = cols[7].get_text(strip=True)       # ex: Entrada, Saída
 
-                if "Fila" in tecnico:
-                    continue
-
+                # Trata string de duração em segundos
                 try:
                     h, m, s = duracao.split(":")
                     segundos = int(h) * 3600 + int(m) * 60 + int(s)
@@ -140,10 +142,12 @@ def buscar_cdr(data_inicio, data_fim, progress_ui=None):
                     segundos = 0
 
                 dados.append({
-                    "cliente": cliente,
+                    "bina": bina,
                     "tecnico": tecnico,
                     "duracao": duracao,
-                    "segundos": segundos
+                    "segundos": segundos,
+                    "status": status,
+                    "tipo": tipo
                 })
 
         if progress_bar:
@@ -159,45 +163,58 @@ def buscar_cdr(data_inicio, data_fim, progress_ui=None):
     return dados
 
 # =========================================================
-# ANÁLISE E INSIGHTS ESTRATÉGICOS
+# PROCESSAMENTO DE KPIS E INSIGHTS
 # =========================================================
 def analisar_dados(dados):
     total_chamadas = len(dados)
     if total_chamadas == 0:
         return None
 
-    segundos_totais = sum(d["segundos"] for d in dados)
+    # LÓGICA MANTIDA: Filtra chamadas ignorando as que ficaram paradas na "Fila"
+    dados_validos = [d for d in dados if "Fila" not in d["tecnico"]]
     
-    # Horas e Minutos Formatados
+    segundos_totais = sum(d["segundos"] for d in dados_validos)
+
+    # Formatação de Tempo Total acumulado
     horas = int(segundos_totais // 3600)
     minutos = int((segundos_totais % 3600) // 60)
     tempo_total_fmt = f"{horas}h {minutos}m"
 
-    # TMA
-    tma_seg = int(round(segundos_totais / total_chamadas))
+    # Cálculo do Tempo Médio de Atendimento (TMA)
+    tma_seg = int(round(segundos_totais / len(dados_validos))) if dados_validos else 0
     tma_fmt = f"{tma_seg // 60:02d}:{tma_seg % 60:02d}"
 
-    # Frequência de chamadas por cliente
-    contagem_clientes = Counter([d["cliente"] for d in dados if d["cliente"]])
+    # LÓGICA DE REINCIDÊNCIA: Contagem por telefone cliente (Bina)
+    contagem_clientes = Counter([d["bina"] for d in dados_validos if d["bina"]])
     clientes_reincidentes = {k: v for k, v in contagem_clientes.items() if v > 1}
-    
-    # Mapeamento de fragmentação (Atendimento por múltiplos técnicos)
+
+    # MANUTENÇÃO FUTURA: Identificação de chamadas curtas (< 10s)
+    ligacoes_curtas = [
+        {
+            "Telefone (Bina)": d["bina"],
+            "Técnico": d["tecnico"],
+            "Status": d["status"],
+            "Duração": d["duracao"]
+        }
+        for d in dados_validos if d["segundos"] < 10
+    ]
+
+    # Mapeamento para avaliar Fragmentação do atendimento
     tecnicos_por_cliente = defaultdict(set)
     tempo_por_cliente = defaultdict(int)
 
-    for d in dados:
-        cli = d["cliente"]
+    for d in dados_validos:
+        cli = d["bina"]
         tecnicos_por_cliente[cli].add(d["tecnico"])
         tempo_por_cliente[cli] += d["segundos"]
 
-    # Clientes atendidos por mais de 1 técnico
     clientes_fragmentados = {
         cli: list(tecs) for cli, tecs in tecnicos_por_cliente.items() if len(tecs) > 1
     }
 
-    # Desempenho dos funcionários
+    # Desempenho individual dos funcionários
     desempenho_tecnicos = defaultdict(lambda: {"chamadas": 0, "segundos": 0})
-    for d in dados:
+    for d in dados_validos:
         tec = d["tecnico"]
         desempenho_tecnicos[tec]["chamadas"] += 1
         desempenho_tecnicos[tec]["segundos"] += d["segundos"]
@@ -208,7 +225,7 @@ def analisar_dados(dados):
         ranking_tecnicos.append({
             "Técnico": tec,
             "Total Chamadas": info["chamadas"],
-            "Tempo Total (h)": f"{info['segundos'] // 3600:02d}:{(info['segundos'] % 3600) // 60:02d}",
+            "Tempo Total": f"{info['segundos'] // 3600:02d}:{(info['segundos'] % 3600) // 60:02d}",
             "TMA": f"{tma_t // 60:02d}:{tma_t % 60:02d}"
         })
 
@@ -222,16 +239,18 @@ def analisar_dados(dados):
         "reincidentes": clientes_reincidentes,
         "fragmentados": clientes_fragmentados,
         "tempo_por_cliente": tempo_por_cliente,
-        "ranking_tecnicos": ranking_tecnicos
+        "ranking_tecnicos": ranking_tecnicos,
+        "ligacoes_curtas": ligacoes_curtas  # Nova métrica
     }
 
 # =========================================================
-# INTERFACE STREAMLIT
+# INTERFACE GRÁFICA (Streamlit)
 # =========================================================
-st.set_page_config(page_title="Análise de Chamadas", layout="wide")
+st.set_page_config(page_title="Análise CDR - PABX", layout="wide")
 
 st.title("📊 Análise de Chamadas e Insights Estratégicos")
 
+# Formulário de entrada - Somente filtros por data e botão consultar
 with st.form("form_filtro"):
     col1, col2, col3 = st.columns([2, 2, 1])
 
@@ -247,7 +266,7 @@ with st.form("form_filtro"):
         submit = st.form_submit_button("🔍 Consultar")
 
 # =========================================================
-# DASHBOARD DE RESULTADOS
+# EXIBIÇÃO DOS RESULTADOS
 # =========================================================
 if submit:
     if not data_inicio or not data_fim:
@@ -268,21 +287,32 @@ if submit:
                 
                 c1.metric("Valor Total de Ligações", f"{analise['total_chamadas']} chamadas")
                 c2.metric("Tempo Total em Ligação", analise["tempo_total_fmt"])
-                c3.metric("Tempo Médio de Atendimento (TMA)", analise["tma_fmt"])
+                c3.metric("TMA Geral", analise["tma_fmt"])
                 
                 pct_reincidencia = (len(analise["reincidentes"]) / len(analise["contagem_clientes"])) * 100 if analise["contagem_clientes"] else 0
-                c4.metric("Taxa de Reincidência de Clientes", f"{pct_reincidencia:.1f}%")
+                c4.metric("Taxa de Reincidência", f"{pct_reincidencia:.1f}%")
 
                 st.divider()
 
-                # 2. INSIGHTS ANALÍTICOS ESTRATÉGICOS
+                # 2. SEÇÃO DE LIGAÇÕES CURTAS (< 10s)
+                st.subheader("⏱️ Ligações Curtas (Menos de 10 segundos)")
+                st.caption("Chamadas encerradas rapidamente. Podem indicar quedas de linha ou enganos.")
+                
+                if analise["ligacoes_curtas"]:
+                    st.warning(f"Foram encontradas {len(analise['ligacoes_curtas'])} ligações com menos de 10 segundos.")
+                    st.dataframe(analise["ligacoes_curtas"], use_container_width=True)
+                else:
+                    st.success("Nenhuma ligação com menos de 10 segundos foi registrada.")
+
+                st.divider()
+
+                # 3. INSIGHTS ANALÍTICOS ESTRATÉGICOS
                 st.subheader("💡 Insights Analíticos Estratégicos")
 
                 col_left, col_right = st.columns(2)
 
                 with col_left:
-                    st.markdown("### 🔁 Reincidência e Clientes que Mais Ligaram")
-                    st.caption("Números de telefone que ligaram repetidamente no período.")
+                    st.markdown("### 🔁 Reincidência de Clientes (Bina)")
                     
                     reincidencias_ordenadas = sorted(
                         analise["reincidentes"].items(), key=lambda x: x[1], reverse=True
@@ -290,37 +320,37 @@ if submit:
 
                     if reincidencias_ordenadas:
                         tabela_reincidencia = []
-                        for numero, qtd in reincidencias_ordenadas[:10]:
-                            seg_totais = analise["tempo_por_cliente"][numero]
+                        for bina, qtd in reincidencias_ordenadas[:10]:
+                            seg_totais = analise["tempo_por_cliente"][bina]
                             tabela_reincidencia.append({
-                                "Telefone / Cliente": numero,
+                                "Cliente (Bina)": bina,
                                 "Qtd. Ligações": qtd,
-                                "Tempo Total": f"{seg_totais // 3600:02d}:{(seg_totais % 3600) // 60:02d}"
+                                "Tempo Acumulado": f"{seg_totais // 3600:02d}:{(seg_totais % 3600) // 60:02d}"
                             })
                         st.table(tabela_reincidencia)
                     else:
-                        st.info("Nenhum cliente realizou ligações repetidas no período.")
+                        st.info("Nenhum cliente realizou chamadas repetidas no período.")
 
                 with col_right:
                     st.markdown("### 🔀 Fragmentação no Atendimento")
-                    st.caption("Clientes atendidos por múltiplos funcionários (possível retrabalho ou falta de resolução rápida).")
+                    st.caption("Clientes que falaram com mais de um funcionário diferençado.")
 
                     if analise["fragmentados"]:
                         tabela_fragmentacao = []
-                        for cliente, tecs in list(analise["fragmentados"].items())[:10]:
+                        for bina, tecs in list(analise["fragmentados"].items())[:10]:
                             tabela_fragmentacao.append({
-                                "Telefone / Cliente": cliente,
+                                "Cliente (Bina)": bina,
                                 "Nº Funcionários": len(tecs),
-                                "Funcionários Envolvidos": ", ".join(tecs)
+                                "Funcionários": ", ".join(tecs)
                             })
                         st.table(tabela_fragmentacao)
                     else:
-                        st.success("Não houve fragmentação. Os clientes foram atendidos sempre pelo mesmo funcionário.")
+                        st.success("Nenhum cliente precisou ser atendido por múltiplos funcionários.")
 
                 st.divider()
 
-                # 3. PERFORMANCE DA EQUIPE
-                st.subheader("👨‍💻 Desempenho e Produtividade dos Funcionários")
+                # 4. RANKING DE FUNCIONÁRIOS
+                st.subheader("👨‍💻 Desempenho da Equipe")
                 st.table(analise["ranking_tecnicos"])
 
         except Exception as e:
