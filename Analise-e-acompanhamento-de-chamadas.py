@@ -23,14 +23,17 @@ senha = "smk03657"
 st.set_page_config(page_title="Análise CDR - PABX", layout="wide")
 
 # CSS para ajustar espaçamentos e evitar que o texto fique apertado nas tabelas
-st.markdown("""
+st.markdown(
+    """
     <style>
         .stDataFrame { width: 100%; }
         div[data-testid="stMetricValue"] { font-size: 1.8rem; }
         .stTable { width: 100%; }
         div[role="gridcell"] { padding: 8px !important; }
     </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # ATENÇÃO: Garanta que essas variáveis estejam definidas no seu ambiente
 # login_url = "https://pabx.evence.com.br/login"
@@ -38,16 +41,16 @@ st.markdown("""
 # email = "seu_email"
 # senha = "sua_senha"
 
+
 # =========================================================
 # SESSÃO REUTILIZÁVEL (Evita múltiplos logins no servidor PABX)
 # =========================================================
 @st.cache_resource
 def get_session():
     session = requests.Session()
-    session.headers.update({
-        "User-Agent": "Mozilla/5.0"
-    })
+    session.headers.update({"User-Agent": "Mozilla/5.0"})
     return session
+
 
 # =========================================================
 # LOGIN NO PABX (Com busca dinâmica de CSRF token)
@@ -61,11 +64,7 @@ def login_pabx():
     csrf_input = soup.find("input", {"name": "_token"})
     csrf_token = csrf_input["value"] if csrf_input else ""
 
-    payload = {
-        "login": email,
-        "senha": senha,
-        "_token": csrf_token
-    }
+    payload = {"login": email, "senha": senha, "_token": csrf_token}
 
     response = session.post(login_url, data=payload, timeout=120)
 
@@ -74,17 +73,21 @@ def login_pabx():
     else:
         raise Exception("Erro no login")
 
+
 # =========================================================
 # RETRY (Tratamento para instabilidades de rede)
 # =========================================================
 def request_com_retry(session, url, params, headers, tentativas=4):
     for i in range(tentativas):
         try:
-            return session.get(url, params=params, headers=headers, timeout=120)
+            return session.get(
+                url, params=params, headers=headers, timeout=120
+            )
         except requests.exceptions.Timeout:
             if i == tentativas - 1:
                 raise
             time.sleep(2)
+
 
 # =========================================================
 # BUSCA E PARSING DO CDR
@@ -113,12 +116,12 @@ def buscar_cdr(data_inicio, data_fim, progress_ui=None):
         "gravacao": "",
         "discador": "0",
         "data_inicial": str_inicio,
-        "data_final": str_fim
+        "data_final": str_fim,
     }
 
     headers = {
         "User-Agent": "Mozilla/5.0",
-        "Referer": "https://pabx.evence.com.br/cdr"
+        "Referer": "https://pabx.evence.com.br/cdr",
     }
 
     dados = []
@@ -152,12 +155,16 @@ def buscar_cdr(data_inicio, data_fim, progress_ui=None):
             # 0: Data/Hora, 1: Num. Virtual, 2: Bina (Cliente), 3: Origem,
             # 4: Destino (Técnico), 5: Duração, 6: Status, 7: Tipo
             if len(cols) >= 8:
-                data_hora = cols[0].get_text(strip=True)  # <--- Captura a Data e Hora
-                bina = cols[2].get_text(strip=True)       # Telefone do cliente
-                tecnico = cols[4].get_text(strip=True)    # Destino / Atendente
-                duracao = cols[5].get_text(strip=True)    # Duração (HH:MM:SS)
-                status = cols[6].get_text(strip=True)     # ex: Atendida, Abandonada
-                tipo = cols[7].get_text(strip=True)       # ex: Entrada, Saída
+                data_hora = cols[0].get_text(
+                    strip=True
+                )  # Captura a Data e Hora
+                bina = cols[2].get_text(strip=True)  # Telefone do cliente
+                tecnico = cols[4].get_text(strip=True)  # Destino / Atendente
+                duracao = cols[5].get_text(strip=True)  # Duração (HH:MM:SS)
+                status = cols[6].get_text(
+                    strip=True
+                )  # ex: Atendida, Abandonada
+                tipo = cols[7].get_text(strip=True)  # ex: Entrada, Saída
 
                 try:
                     h, m, s = duracao.split(":")
@@ -165,15 +172,17 @@ def buscar_cdr(data_inicio, data_fim, progress_ui=None):
                 except ValueError:
                     segundos = 0
 
-                dados.append({
-                    "data_hora": data_hora,              # <--- Armazena Data/Hora
-                    "bina": bina,
-                    "tecnico": tecnico,
-                    "duracao": duracao,
-                    "segundos": segundos,
-                    "status": status,
-                    "tipo": tipo
-                })
+                dados.append(
+                    {
+                        "data_hora": data_hora,  # Armazena Data/Hora
+                        "bina": bina,
+                        "tecnico": tecnico,
+                        "duracao": duracao,
+                        "segundos": segundos,
+                        "status": status,
+                        "tipo": tipo,
+                    }
+                )
 
         if progress_bar:
             progresso = min(pagina / total_estimado, 1.0)
@@ -187,12 +196,13 @@ def buscar_cdr(data_inicio, data_fim, progress_ui=None):
 
     return dados
 
+
 # =========================================================
 # PROCESSAMENTO DE KPIS E INSIGHTS
 # =========================================================
 def analisar_dados(dados):
-    total_chamadas_bruto = len(dados) 
-    
+    total_chamadas_bruto = len(dados)
+
     if total_chamadas_bruto == 0:
         return None
 
@@ -206,11 +216,19 @@ def analisar_dados(dados):
     minutos = int((segundos_totais % 3600) // 60)
     tempo_total_fmt = f"{horas}h {minutos}m"
 
-    tma_seg = int(round(segundos_totais / total_atendidas_tecnicos)) if total_atendidas_tecnicos > 0 else 0
+    tma_seg = (
+        int(round(segundos_totais / total_atendidas_tecnicos))
+        if total_atendidas_tecnicos > 0
+        else 0
+    )
     tma_fmt = f"{tma_seg // 60:02d}:{tma_seg % 60:02d}"
 
-    contagem_clientes = Counter([d["bina"] for d in dados_validos if d["bina"]])
-    clientes_reincidentes = {k: v for k, v in contagem_clientes.items() if v > 1}
+    contagem_clientes = Counter(
+        [d["bina"] for d in dados_validos if d["bina"]]
+    )
+    clientes_reincidentes = {
+        k: v for k, v in contagem_clientes.items() if v > 1
+    }
 
     # Agrupa as datas/horas por cada cliente (Bina)
     datas_por_cliente = defaultdict(list)
@@ -224,9 +242,10 @@ def analisar_dados(dados):
             "Telefone (Bina)": d["bina"],
             "Técnico": d["tecnico"],
             "Status": d["status"],
-            "Duração": d["duracao"]
+            "Duração": d["duracao"],
         }
-        for d in dados_validos if d["segundos"] < 10
+        for d in dados_validos
+        if d["segundos"] < 10
     ]
 
     tecnicos_por_cliente = defaultdict(set)
@@ -238,7 +257,9 @@ def analisar_dados(dados):
         tempo_por_cliente[cli] += d["segundos"]
 
     clientes_fragmentados = {
-        cli: list(tecs) for cli, tecs in tecnicos_por_cliente.items() if len(tecs) > 1
+        cli: list(tecs)
+        for cli, tecs in tecnicos_por_cliente.items()
+        if len(tecs) > 1
     }
 
     desempenho_tecnicos = defaultdict(lambda: {"chamadas": 0, "segundos": 0})
@@ -249,13 +270,19 @@ def analisar_dados(dados):
 
     ranking_tecnicos = []
     for tec, info in desempenho_tecnicos.items():
-        tma_t = int(round(info["segundos"] / info["chamadas"])) if info["chamadas"] > 0 else 0
-        ranking_tecnicos.append({
-            "Técnico": tec,
-            "Total Chamadas": info["chamadas"],
-            "Tempo Total": f"{info['segundos'] // 3600:02d}:{(info['segundos'] % 3600) // 60:02d}",
-            "TMA": f"{tma_t // 60:02d}:{tma_t % 60:02d}"
-        })
+        tma_t = (
+            int(round(info["segundos"] / info["chamadas"]))
+            if info["chamadas"] > 0
+            else 0
+        )
+        ranking_tecnicos.append(
+            {
+                "Técnico": tec,
+                "Total Chamadas": info["chamadas"],
+                "Tempo Total": f"{info['segundos'] // 3600:02d}:{(info['segundos'] % 3600) // 60:02d}",
+                "TMA": f"{tma_t // 60:02d}:{tma_t % 60:02d}",
+            }
+        )
 
     ranking_tecnicos.sort(key=lambda x: x["Total Chamadas"], reverse=True)
 
@@ -268,12 +295,13 @@ def analisar_dados(dados):
         "tma_fmt": tma_fmt,
         "contagem_clientes": contagem_clientes,
         "reincidentes": clientes_reincidentes,
-        "datas_por_cliente": datas_por_cliente,           # <--- Retorna agrupamento de horários
+        "datas_por_cliente": datas_por_cliente,  # Retorna agrupamento de horários
         "fragmentados": clientes_fragmentados,
         "tempo_por_cliente": tempo_por_cliente,
         "ranking_tecnicos": ranking_tecnicos,
-        "ligacoes_curtas": ligacoes_curtas
+        "ligacoes_curtas": ligacoes_curtas,
     }
+
 
 # =========================================================
 # INTERFACE GRÁFICA (Streamlit)
@@ -306,7 +334,9 @@ if submit:
             dados = buscar_cdr(str(data_inicio), str(data_fim), progress_ui)
 
             if not dados:
-                st.warning("Nenhuma chamada encontrada no período selecionado.")
+                st.warning(
+                    "Nenhuma chamada encontrada no período selecionado."
+                )
             else:
                 analise = analisar_dados(dados)
 
@@ -314,8 +344,13 @@ if submit:
                 st.subheader("📌 Resumo Executivo")
                 c1, c2, c3, c4 = st.columns(4)
 
-                c1.metric("Total de Chamadas (PABX)", f"{analise['total_chamadas_bruto']}")
-                c2.metric("Atendidas por Técnicos", f"{analise['total_atendidas']}")
+                c1.metric(
+                    "Total de Chamadas (PABX)",
+                    f"{analise['total_chamadas_bruto']}",
+                )
+                c2.metric(
+                    "Atendidas por Técnicos", f"{analise['total_atendidas']}"
+                )
                 c3.metric("Tempo Total Falado", analise["tempo_total_fmt"])
                 c4.metric("TMA Médio", analise["tma_fmt"])
 
@@ -323,131 +358,143 @@ if submit:
 
                 # 2. SEÇÃO DE LIGAÇÕES CURTAS (< 10s)
                 st.subheader("⏱️ Ligações Curtas (Menos de 10 segundos)")
-                st.caption("Chamadas encerradas rapidamente. Podem indicar quedas de linha ou enganos.")
-                
+                st.caption(
+                    "Chamadas encerradas rapidamente. Podem indicar quedas de linha ou enganos."
+                )
+
                 if analise["ligacoes_curtas"]:
-                    st.warning(f"Foram encontradas {len(analise['ligacoes_curtas'])} ligações com menos de 10 segundos.")
+                    st.warning(
+                        f"Foram encontradas {len(analise['ligacoes_curtas'])} ligações com menos de 10 segundos."
+                    )
                     st.dataframe(
-                        analise["ligacoes_curtas"], 
-                        use_container_width=True, 
-                        hide_index=True
+                        analise["ligacoes_curtas"],
+                        use_container_width=True,
+                        hide_index=True,
                     )
                 else:
-                    st.success("Nenhuma ligação com menos de 10 segundos foi registrada.")
+                    st.success(
+                        "Nenhuma ligação com menos de 10 segundos foi registrada."
+                    )
 
                 st.divider()
 
-                # 3. INSIGHTS ANALÍTICOS ESTRATÉGICOS# =========================================================
-# INSIGHTS ANALÍTICOS ESTRATÉGICOS (TRECHO ATUALIZADO)
-# =========================================================
-st.subheader("💡 Insights Analíticos Estratégicos")
+                # 3. INSIGHTS ANALÍTICOS ESTRATÉGICOS
+                st.subheader("💡 Insights Analíticos Estratégicos")
 
-col_left, col_right = st.columns(2)
+                col_left, col_right = st.columns(2)
 
-with col_left:
-    st.markdown("### 🔁 Reincidência de Clientes (Bina)")
-    st.caption("Clientes que ligaram mais de uma vez no período.")
-    
-    reincidencias_ordenadas = sorted(
-        analise["reincidentes"].items(), key=lambda x: x[1], reverse=True
-    )
+                with col_left:
+                    st.markdown("### 🔁 Reincidência de Clientes (Bina)")
+                    st.caption(
+                        "Clientes que ligaram mais de uma vez no período."
+                    )
 
-    if reincidencias_ordenadas:
-        tabela_reincidencia = []
-        for bina, qtd in reincidencias_ordenadas[:10]:
-            # Formata a lista de datas/horas separadas por vírgula e quebra de linha
-            datas_str = " | ".join(analise["datas_por_cliente"][bina])
-            
-            tabela_reincidencia.append({
-                "Cliente (Bina)": bina,
-                "Qtd. Ligações": qtd,
-                "Datas / Horários das Chamadas": datas_str
-                # Coluna "Tempo Acumulado" removida com sucesso
-            })
-        st.dataframe(
-            tabela_reincidencia, 
-            use_container_width=True, 
-            hide_index=True
-        )
-    else:
-        st.info("Nenhum cliente realizou chamadas repetidas no período.")
+                    reincidencias_ordenadas = sorted(
+                        analise["reincidentes"].items(),
+                        key=lambda x: x[1],
+                        reverse=True,
+                    )
 
-with col_right:
-    st.markdown("### 🔀 Fragmentação no Atendimento")
-    st.caption("Clientes que falaram com mais de um funcionário diferente.")
+                    if reincidencias_ordenadas:
+                        tabela_reincidencia = []
+                        for bina, qtd in reincidencias_ordenadas[:10]:
+                            # Formata a lista de datas/horas separadas por vírgula
+                            datas_str = " | ".join(
+                                analise["datas_por_cliente"][bina]
+                            )
 
-    if analise["fragmentados"]:
-        tabela_fragmentacao = []
-        for bina, tecs in list(analise["fragmentados"].items())[:10]:
-            tabela_fragmentacao.append({
-                "Cliente (Bina)": bina,
-                "Nº Funcionários": len(tecs),
-                "Funcionários": ", ".join(tecs)
-            })
-        st.dataframe(
-            tabela_fragmentacao, 
-            use_container_width=True, 
-            hide_index=True
-        )
-    else:
-        st.success("Nenhum cliente precisou ser atendido por múltiplos funcionários.")
-        
+                            tabela_reincidencia.append(
+                                {
+                                    "Cliente (Bina)": bina,
+                                    "Qtd. Ligações": qtd,
+                                    "Datas / Horários das Chamadas": datas_str,
+                                    # Coluna "Tempo Acumulado" removida
+                                }
+                            )
+                        st.dataframe(
+                            tabela_reincidencia,
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                    else:
+                        st.info(
+                            "Nenhum cliente realizou chamadas repetidas no período."
+                        )
+
                 with col_right:
                     st.markdown("### 🔀 Fragmentação no Atendimento")
-                    st.caption("Clientes que falaram com mais de um funcionário diferente.")
+                    st.caption(
+                        "Clientes que falaram com mais de um funcionário diferente."
+                    )
 
                     if analise["fragmentados"]:
                         tabela_fragmentacao = []
-                        for bina, tecs in list(analise["fragmentados"].items())[:10]:
-                            tabela_fragmentacao.append({
-                                "Cliente (Bina)": bina,
-                                "Nº Funcionários": len(tecs),
-                                "Funcionários": ", ".join(tecs)
-                            })
+                        for bina, tecs in list(
+                            analise["fragmentados"].items()
+                        )[:10]:
+                            tabela_fragmentacao.append(
+                                {
+                                    "Cliente (Bina)": bina,
+                                    "Nº Funcionários": len(tecs),
+                                    "Funcionários": ", ".join(tecs),
+                                }
+                            )
                         st.dataframe(
-                            tabela_fragmentacao, 
-                            use_container_width=True, 
-                            hide_index=True
+                            tabela_fragmentacao,
+                            use_container_width=True,
+                            hide_index=True,
                         )
                     else:
-                        st.success("Nenhum cliente precisou ser atendido por múltiplos funcionários.")
+                        st.success(
+                            "Nenhum cliente precisou ser atendido por múltiplos funcionários."
+                        )
 
                 st.divider()
 
                 # 4. CHAMADAS NÃO ATENDIDAS / ABANDONADAS
-                st.subheader("⚠️ Chamadas Não Atendidas / Fila (Diferença do PABX)")
+                st.subheader(
+                    "⚠️ Chamadas Não Atendidas / Fila (Diferença do PABX)"
+                )
 
                 if analise["chamadas_abandonadas"]:
-                    st.warning(f"Encontradas {analise['total_abandonadas']} chamadas que não chegaram a ser atendidas por um técnico.")
-                    
+                    st.warning(
+                        f"Encontradas {analise['total_abandonadas']} chamadas que não chegaram a ser atendidas por um técnico."
+                    )
+
                     tabela_nao_atendidas = [
                         {
-                            "Data/Hora": d["data_hora"],               # <--- Incluído Data/Hora aqui também
+                            "Data/Hora": d[
+                                "data_hora"
+                            ],  # Incluído Data/Hora aqui
                             "Telefone (Cliente/Bina)": d["bina"],
                             "Destino/Fila": d["tecnico"],
                             "Status PABX": d["status"],
-                            "Tempo de Espera": d["duracao"]
+                            "Tempo de Espera": d["duracao"],
                         }
                         for d in analise["chamadas_abandonadas"]
                     ]
-                    
-                    with st.expander("🔍 Clique aqui para ver a lista completa destas chamadas"):
+
+                    with st.expander(
+                        "🔍 Clique aqui para ver a lista completa destas chamadas"
+                    ):
                         st.dataframe(
-                            tabela_nao_atendidas, 
-                            use_container_width=True, 
-                            hide_index=True
+                            tabela_nao_atendidas,
+                            use_container_width=True,
+                            hide_index=True,
                         )
                 else:
-                    st.success("Todas as chamadas do PABX foram atendidas por técnicos!")
+                    st.success(
+                        "Todas as chamadas do PABX foram atendidas por técnicos!"
+                    )
 
                 st.divider()
 
                 # 5. RANKING DE FUNCIONÁRIOS
                 st.subheader("👨‍💻 Desempenho da Equipe")
                 st.dataframe(
-                    analise["ranking_tecnicos"], 
-                    use_container_width=True, 
-                    hide_index=True
+                    analise["ranking_tecnicos"],
+                    use_container_width=True,
+                    hide_index=True,
                 )
 
         except Exception as e:
