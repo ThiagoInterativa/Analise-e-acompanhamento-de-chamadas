@@ -9,8 +9,8 @@ from collections import Counter, defaultdict
 login_url = "https://pabx.evence.com.br/login"
 cdr_url = "https://pabx.evence.com.br/cdr/pesquisar"
 
-email = "suporte@"
-senha = ""
+email = "suporte@interativanet.com.br"
+senha = "smk03657"
 
 # =========================================================
 # SESSÃO REUTILIZÁVEL
