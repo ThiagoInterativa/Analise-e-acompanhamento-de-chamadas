@@ -18,6 +18,27 @@ email = "suporte@interativanet.com.br"
 senha = "smk03657"
 
 # =========================================================
+# CONFIGURAÇÕES DA APLICAÇÃO
+# =========================================================
+st.set_page_config(page_title="Análise CDR - PABX", layout="wide")
+
+# CSS para ajustar espaçamentos e evitar que o texto fique apertado nas tabelas
+st.markdown("""
+    <style>
+        .stDataFrame { width: 100%; }
+        div[data-testid="stMetricValue"] { font-size: 1.8rem; }
+        .stTable { width: 100%; }
+        div[role="gridcell"] { padding: 8px !important; }
+    </style>
+""", unsafe_allow_html=True)
+
+# ATENÇÃO: Garanta que essas variáveis estejam definidas no seu ambiente
+# login_url = "https://pabx.evence.com.br/login"
+# cdr_url = "https://pabx.evence.com.br/cdr"
+# email = "seu_email"
+# senha = "sua_senha"
+
+# =========================================================
 # SESSÃO REUTILIZÁVEL (Evita múltiplos logins no servidor PABX)
 # =========================================================
 @st.cache_resource
@@ -66,7 +87,7 @@ def request_com_retry(session, url, params, headers, tentativas=4):
             time.sleep(2)
 
 # =========================================================
-# BUSCA E PARSING DO CDR (Ajustado para a estrutura HTML real)
+# BUSCA E PARSING DO CDR
 # =========================================================
 def buscar_cdr(data_inicio, data_fim, progress_ui=None):
     session = login_pabx()
@@ -131,13 +152,13 @@ def buscar_cdr(data_inicio, data_fim, progress_ui=None):
             # 0: Data/Hora, 1: Num. Virtual, 2: Bina (Cliente), 3: Origem,
             # 4: Destino (Técnico), 5: Duração, 6: Status, 7: Tipo
             if len(cols) >= 8:
+                data_hora = cols[0].get_text(strip=True)  # <--- Captura a Data e Hora
                 bina = cols[2].get_text(strip=True)       # Telefone do cliente
                 tecnico = cols[4].get_text(strip=True)    # Destino / Atendente
                 duracao = cols[5].get_text(strip=True)    # Duração (HH:MM:SS)
                 status = cols[6].get_text(strip=True)     # ex: Atendida, Abandonada
                 tipo = cols[7].get_text(strip=True)       # ex: Entrada, Saída
 
-                # Trata string de duração em segundos
                 try:
                     h, m, s = duracao.split(":")
                     segundos = int(h) * 3600 + int(m) * 60 + int(s)
@@ -145,6 +166,7 @@ def buscar_cdr(data_inicio, data_fim, progress_ui=None):
                     segundos = 0
 
                 dados.append({
+                    "data_hora": data_hora,              # <--- Armazena Data/Hora
                     "bina": bina,
                     "tecnico": tecnico,
                     "duracao": duracao,
@@ -174,11 +196,7 @@ def analisar_dados(dados):
     if total_chamadas_bruto == 0:
         return None
 
-    # Separamos em 2 grupos:
-    # A) Chamadas que foram atendidas por um Técnico/Ramal
     dados_validos = [d for d in dados if "Fila" not in d["tecnico"]]
-    
-    # B) Chamadas que ficaram na Fila / Não foram atendidas (A diferença)
     chamadas_abandonadas = [d for d in dados if "Fila" in d["tecnico"]]
 
     total_atendidas_tecnicos = len(dados_validos)
@@ -194,8 +212,15 @@ def analisar_dados(dados):
     contagem_clientes = Counter([d["bina"] for d in dados_validos if d["bina"]])
     clientes_reincidentes = {k: v for k, v in contagem_clientes.items() if v > 1}
 
+    # Agrupa as datas/horas por cada cliente (Bina)
+    datas_por_cliente = defaultdict(list)
+    for d in dados_validos:
+        if d["bina"]:
+            datas_por_cliente[d["bina"]].append(d["data_hora"])
+
     ligacoes_curtas = [
         {
+            "Data/Hora": d["data_hora"],
             "Telefone (Bina)": d["bina"],
             "Técnico": d["tecnico"],
             "Status": d["status"],
@@ -243,6 +268,7 @@ def analisar_dados(dados):
         "tma_fmt": tma_fmt,
         "contagem_clientes": contagem_clientes,
         "reincidentes": clientes_reincidentes,
+        "datas_por_cliente": datas_por_cliente,           # <--- Retorna agrupamento de horários
         "fragmentados": clientes_fragmentados,
         "tempo_por_cliente": tempo_por_cliente,
         "ranking_tecnicos": ranking_tecnicos,
@@ -254,7 +280,6 @@ def analisar_dados(dados):
 # =========================================================
 st.title("📊 Análise de Chamadas e Insights Estratégicos")
 
-# Formulário de entrada
 with st.form("form_filtro"):
     col1, col2, col3 = st.columns([2, 2, 1])
 
@@ -302,7 +327,11 @@ if submit:
                 
                 if analise["ligacoes_curtas"]:
                     st.warning(f"Foram encontradas {len(analise['ligacoes_curtas'])} ligações com menos de 10 segundos.")
-                    st.dataframe(analise["ligacoes_curtas"], use_container_width=True)
+                    st.dataframe(
+                        analise["ligacoes_curtas"], 
+                        use_container_width=True, 
+                        hide_index=True
+                    )
                 else:
                     st.success("Nenhuma ligação com menos de 10 segundos foi registrada.")
 
@@ -315,6 +344,7 @@ if submit:
 
                 with col_left:
                     st.markdown("### 🔁 Reincidência de Clientes (Bina)")
+                    st.caption("Clientes que ligaram mais de uma vez no período.")
                     
                     reincidencias_ordenadas = sorted(
                         analise["reincidentes"].items(), key=lambda x: x[1], reverse=True
@@ -324,12 +354,20 @@ if submit:
                         tabela_reincidencia = []
                         for bina, qtd in reincidencias_ordenadas[:10]:
                             seg_totais = analise["tempo_por_cliente"][bina]
+                            # Formata a lista de datas/horas separadas por vírgula e quebra de linha
+                            datas_str = " | ".join(analise["datas_por_cliente"][bina])
+                            
                             tabela_reincidencia.append({
                                 "Cliente (Bina)": bina,
                                 "Qtd. Ligações": qtd,
+                                "Datas / Horários das Chamadas": datas_str,  # <--- Coluna exibida na tabela
                                 "Tempo Acumulado": f"{seg_totais // 3600:02d}:{(seg_totais % 3600) // 60:02d}"
                             })
-                        st.table(tabela_reincidencia)
+                        st.dataframe(
+                            tabela_reincidencia, 
+                            use_container_width=True, 
+                            hide_index=True
+                        )
                     else:
                         st.info("Nenhum cliente realizou chamadas repetidas no período.")
 
@@ -345,13 +383,17 @@ if submit:
                                 "Nº Funcionários": len(tecs),
                                 "Funcionários": ", ".join(tecs)
                             })
-                        st.table(tabela_fragmentacao)
+                        st.dataframe(
+                            tabela_fragmentacao, 
+                            use_container_width=True, 
+                            hide_index=True
+                        )
                     else:
                         st.success("Nenhum cliente precisou ser atendido por múltiplos funcionários.")
 
                 st.divider()
 
-                # 4. CHAMADAS NÃO ATENDIDAS / ABANDONADAS (A diferença do PABX)
+                # 4. CHAMADAS NÃO ATENDIDAS / ABANDONADAS
                 st.subheader("⚠️ Chamadas Não Atendidas / Fila (Diferença do PABX)")
 
                 if analise["chamadas_abandonadas"]:
@@ -359,6 +401,7 @@ if submit:
                     
                     tabela_nao_atendidas = [
                         {
+                            "Data/Hora": d["data_hora"],               # <--- Incluído Data/Hora aqui também
                             "Telefone (Cliente/Bina)": d["bina"],
                             "Destino/Fila": d["tecnico"],
                             "Status PABX": d["status"],
@@ -368,7 +411,11 @@ if submit:
                     ]
                     
                     with st.expander("🔍 Clique aqui para ver a lista completa destas chamadas"):
-                        st.dataframe(tabela_nao_atendidas, use_container_width=True)
+                        st.dataframe(
+                            tabela_nao_atendidas, 
+                            use_container_width=True, 
+                            hide_index=True
+                        )
                 else:
                     st.success("Todas as chamadas do PABX foram atendidas por técnicos!")
 
@@ -376,7 +423,11 @@ if submit:
 
                 # 5. RANKING DE FUNCIONÁRIOS
                 st.subheader("👨‍💻 Desempenho da Equipe")
-                st.table(analise["ranking_tecnicos"])
+                st.dataframe(
+                    analise["ranking_tecnicos"], 
+                    use_container_width=True, 
+                    hide_index=True
+                )
 
         except Exception as e:
             st.error(f"Erro ao processar a consulta: {e}")
