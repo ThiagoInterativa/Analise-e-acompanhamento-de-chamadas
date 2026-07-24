@@ -403,33 +403,6 @@ if (
 
         st.divider()
 
-        # 2. SEÇÃO DE LIGAÇÕES CURTAS (< 10s)
-        st.subheader("⏱️ Ligações Curtas (Menos de 10 segundos)")
-        st.caption(
-            "Chamadas encerradas rapidamente. Podem indicar quedas de linha ou enganos."
-        )
-
-        if analise["ligacoes_curtas"]:
-            st.warning(
-                f"Foram encontradas {len(analise['ligacoes_curtas'])} ligações com menos de 10 segundos."
-            )
-            df_curtas = pd.DataFrame(analise["ligacoes_curtas"])
-            st.dataframe(df_curtas, use_container_width=True, hide_index=True)
-
-            # Botão de Exportação
-            st.download_button(
-                label="📥 Exportar Ligações Curtas (CSV)",
-                data=converter_para_csv(df_curtas),
-                file_name="ligacoes_curtas.csv",
-                mime="text/csv",
-            )
-        else:
-            st.success(
-                "Nenhuma ligação com menos de 10 segundos foi registrada."
-            )
-
-        st.divider()
-
         # 3. INSIGHTS ANALÍTICOS ESTRATÉGICOS
         st.subheader("💡 Insights Analíticos Estratégicos")
 
@@ -506,6 +479,34 @@ if (
                 st.success(
                     "Nenhum cliente precisou ser atendido por múltiplos funcionários."
                 )
+
+        st.divider()
+
+        
+        # 2. SEÇÃO DE LIGAÇÕES CURTAS (< 10s)
+        st.subheader("⏱️ Ligações Curtas (Menos de 10 segundos)")
+        st.caption(
+            "Chamadas encerradas rapidamente. Podem indicar quedas de linha ou enganos."
+        )
+
+        if analise["ligacoes_curtas"]:
+            st.warning(
+                f"Foram encontradas {len(analise['ligacoes_curtas'])} ligações com menos de 10 segundos."
+            )
+            df_curtas = pd.DataFrame(analise["ligacoes_curtas"])
+            st.dataframe(df_curtas, use_container_width=True, hide_index=True)
+
+            # Botão de Exportação
+            st.download_button(
+                label="📥 Exportar Ligações Curtas (CSV)",
+                data=converter_para_csv(df_curtas),
+                file_name="ligacoes_curtas.csv",
+                mime="text/csv",
+            )
+        else:
+            st.success(
+                "Nenhuma ligação com menos de 10 segundos foi registrada."
+            )
 
         st.divider()
 
