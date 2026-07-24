@@ -12,7 +12,6 @@ cdr_url = "https://pabx.evence.com.br/cdr/pesquisar"
 email = "suporte@interativanet.com.br"
 senha = "smk03657"
 
-
 # =========================================================
 # SESSÃO REUTILIZÁVEL (Evita múltiplos logins no servidor PABX)
 # =========================================================
@@ -174,7 +173,7 @@ def analisar_dados(dados):
     # A) Chamadas que foram atendidas por um Técnico/Ramal
     dados_validos = [d for d in dados if "Fila" not in d["tecnico"]]
     
-    # B) Chamadas que ficaram na Fila / Não foram atendidas (A diferença!)
+    # B) Chamadas que ficaram na Fila / Não foram atendidas (A diferença)
     chamadas_abandonadas = [d for d in dados if "Fila" in d["tecnico"]]
 
     total_atendidas_tecnicos = len(dados_validos)
@@ -234,7 +233,7 @@ def analisar_dados(dados):
         "total_chamadas_bruto": total_chamadas_bruto,
         "total_atendidas": total_atendidas_tecnicos,
         "total_abandonadas": len(chamadas_abandonadas),
-        "chamadas_abandonadas": chamadas_abandonadas,  # <--- Nova lista com as 16 chamadas
+        "chamadas_abandonadas": chamadas_abandonadas,
         "tempo_total_fmt": tempo_total_fmt,
         "tma_fmt": tma_fmt,
         "contagem_clientes": contagem_clientes,
@@ -346,33 +345,31 @@ if submit:
                         st.success("Nenhum cliente precisou ser atendido por múltiplos funcionários.")
 
                 st.divider()
-# Adicione este bloco no seu código na área de exibição de resultados:
 
-st.divider()
+                # 4. CHAMADAS NÃO ATENDIDAS / ABANDONADAS (A diferença do PABX)
+                st.subheader("⚠️ Chamadas Não Atendidas / Fila (Diferença do PABX)")
 
-# Exibe as chamadas não atendidas / abandonadas (A diferença do PABX)
-st.subheader("⚠️ Chamadas Não Atendidas / Fila (Diferença do PABX)")
+                if analise["chamadas_abandonadas"]:
+                    st.warning(f"Encontradas {analise['total_abandonadas']} chamadas que não chegaram a ser atendidas por um técnico.")
+                    
+                    tabela_nao_atendidas = [
+                        {
+                            "Telefone (Cliente/Bina)": d["bina"],
+                            "Destino/Fila": d["tecnico"],
+                            "Status PABX": d["status"],
+                            "Tempo de Espera": d["duracao"]
+                        }
+                        for d in analise["chamadas_abandonadas"]
+                    ]
+                    
+                    with st.expander("🔍 Clique aqui para ver a lista completa destas chamadas"):
+                        st.dataframe(tabela_nao_atendidas, use_container_width=True)
+                else:
+                    st.success("Todas as chamadas do PABX foram atendidas por técnicos!")
 
-if analise["chamadas_abandonadas"]:
-    st.warning(f"Encontradas {analise['total_abandonadas']} chamadas que não chegaram a ser atendidas por um técnico.")
-    
-    # Prepara a tabela para exibição amigável
-    tabela_nao_atendidas = [
-        {
-            "Telefone (Cliente/Bina)": d["bina"],
-            "Destino/Fila": d["tecnico"],
-            "Status PABX": d["status"],
-            "Tempo de Espera": d["duracao"]
-        }
-        for d in analise["chamadas_abandonadas"]
-    ]
-    
-    with st.expander("🔍 Clique aqui para ver a lista completa destas chamadas"):
-        st.dataframe(tabela_nao_atendidas, use_container_width=True)
-else:
-    st.success("Todas as chamadas do PABX foram atendidas por técnicos!")
-    
-                # 4. RANKING DE FUNCIONÁRIOS
+                st.divider()
+
+                # 5. RANKING DE FUNCIONÁRIOS
                 st.subheader("👨‍💻 Desempenho da Equipe")
                 st.table(analise["ranking_tecnicos"])
 
