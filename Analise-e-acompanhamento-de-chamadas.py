@@ -17,11 +17,6 @@ cdr_url = "https://pabx.evence.com.br/cdr/pesquisar"
 email = "suporte@interativanet.com.br"
 senha = "smk03657"
 
-# =========================================================
-# CONFIGURAÇÕES DA APLICAÇÃO
-# =========================================================
-st.set_page_config(page_title="Análise CDR - PABX", layout="wide")
-
 # CSS para ajustar espaçamentos e evitar que o texto fique apertado nas tabelas
 st.markdown(
     """
@@ -152,19 +147,13 @@ def buscar_cdr(data_inicio, data_fim, progress_ui=None):
         for row in rows:
             cols = row.find_all("td")
 
-            # 0: Data/Hora, 1: Num. Virtual, 2: Bina (Cliente), 3: Origem,
-            # 4: Destino (Técnico), 5: Duração, 6: Status, 7: Tipo
             if len(cols) >= 8:
-                data_hora = cols[0].get_text(
-                    strip=True
-                )  # Captura a Data e Hora
-                bina = cols[2].get_text(strip=True)  # Telefone do cliente
-                tecnico = cols[4].get_text(strip=True)  # Destino / Atendente
-                duracao = cols[5].get_text(strip=True)  # Duração (HH:MM:SS)
-                status = cols[6].get_text(
-                    strip=True
-                )  # ex: Atendida, Abandonada
-                tipo = cols[7].get_text(strip=True)  # ex: Entrada, Saída
+                data_hora = cols[0].get_text(strip=True)
+                bina = cols[2].get_text(strip=True)
+                tecnico = cols[4].get_text(strip=True)
+                duracao = cols[5].get_text(strip=True)
+                status = cols[6].get_text(strip=True)
+                tipo = cols[7].get_text(strip=True)
 
                 try:
                     h, m, s = duracao.split(":")
@@ -174,7 +163,7 @@ def buscar_cdr(data_inicio, data_fim, progress_ui=None):
 
                 dados.append(
                     {
-                        "data_hora": data_hora,  # Armazena Data/Hora
+                        "data_hora": data_hora,
                         "bina": bina,
                         "tecnico": tecnico,
                         "duracao": duracao,
@@ -230,7 +219,6 @@ def analisar_dados(dados):
         k: v for k, v in contagem_clientes.items() if v > 1
     }
 
-    # Agrupa as datas/horas por cada cliente (Bina)
     datas_por_cliente = defaultdict(list)
     for d in dados_validos:
         if d["bina"]:
@@ -295,7 +283,7 @@ def analisar_dados(dados):
         "tma_fmt": tma_fmt,
         "contagem_clientes": contagem_clientes,
         "reincidentes": clientes_reincidentes,
-        "datas_por_cliente": datas_por_cliente,  # Retorna agrupamento de horários
+        "datas_por_cliente": datas_por_cliente,
         "fragmentados": clientes_fragmentados,
         "tempo_por_cliente": tempo_por_cliente,
         "ranking_tecnicos": ranking_tecnicos,
@@ -304,10 +292,19 @@ def analisar_dados(dados):
 
 
 # =========================================================
+# FUNÇÃO AUXILIAR PARA EXPORTAÇÃO CSV
+# =========================================================
+def converter_para_csv(df):
+    """Converte um DataFrame do pandas para CSV codificado em UTF-8."""
+    return df.to_csv(index=False).encode("utf-8")
+
+
+# =========================================================
 # INTERFACE GRÁFICA (Streamlit)
 # =========================================================
 st.title("📊 Análise de Chamadas e Insights Estratégicos")
 
+# Formulário de Busca PABX
 with st.form("form_filtro"):
     col1, col2, col3 = st.columns([2, 2, 1])
 
@@ -320,182 +317,246 @@ with st.form("form_filtro"):
     with col3:
         st.write("")
         st.write("")
-        submit = st.form_submit_button("🔍 Consultar")
+        submit = st.form_submit_button("🔍 Consultar PABX")
 
-# =========================================================
-# EXIBIÇÃO DOS RESULTADOS
-# =========================================================
+# Busca e guarda os dados em st.session_state para não expirar/perder a consulta ao usar a sidebar
 if submit:
     if not data_inicio or not data_fim:
         st.error("Por favor, selecione as datas de início e fim.")
     else:
         progress_ui = st.empty()
         try:
-            dados = buscar_cdr(str(data_inicio), str(data_fim), progress_ui)
-
-            if not dados:
+            dados_brutos = buscar_cdr(
+                str(data_inicio), str(data_fim), progress_ui
+            )
+            if not dados_brutos:
                 st.warning(
                     "Nenhuma chamada encontrada no período selecionado."
                 )
+                st.session_state["dados_brutos"] = None
             else:
-                analise = analisar_dados(dados)
+                st.session_state["dados_brutos"] = dados_brutos
+        except Exception as e:
+            st.error(f"Erro ao processar a consulta: {e}")
 
-                # 1. RESUMO EXECUTIVO
-                st.subheader("📌 Resumo Executivo")
-                c1, c2, c3, c4 = st.columns(4)
+# =========================================================
+# PROCESSAMENTO DE FILTROS DINÂMICOS (SIDEBAR)
+# =========================================================
+if (
+    "dados_brutos" in st.session_state
+    and st.session_state["dados_brutos"] is not None
+):
+    dados = st.session_state["dados_brutos"]
 
-                c1.metric(
-                    "Total de Chamadas (PABX)",
-                    f"{analise['total_chamadas_bruto']}",
-                )
-                c2.metric(
-                    "Atendidas por Técnicos", f"{analise['total_atendidas']}"
-                )
-                c3.metric("Tempo Total Falado", analise["tempo_total_fmt"])
-                c4.metric("TMA Médio", analise["tma_fmt"])
+    st.sidebar.header("🎯 Filtros Dinâmicos")
 
-                st.divider()
+    # 1. Filtro por Técnico
+    lista_tecnicos = sorted(list(set(d["tecnico"] for d in dados)))
+    tecnicos_selecionados = st.sidebar.multiselect(
+        "Filtrar por Técnico/Fila:",
+        options=lista_tecnicos,
+        default=lista_tecnicos,
+    )
 
-                # 2. SEÇÃO DE LIGAÇÕES CURTAS (< 10s)
-                st.subheader("⏱️ Ligações Curtas (Menos de 10 segundos)")
-                st.caption(
-                    "Chamadas encerradas rapidamente. Podem indicar quedas de linha ou enganos."
-                )
+    # 2. Filtro por Status
+    lista_status = sorted(list(set(d["status"] for d in dados)))
+    status_selecionados = st.sidebar.multiselect(
+        "Filtrar por Status:", options=lista_status, default=lista_status
+    )
 
-                if analise["ligacoes_curtas"]:
-                    st.warning(
-                        f"Foram encontradas {len(analise['ligacoes_curtas'])} ligações com menos de 10 segundos."
-                    )
-                    st.dataframe(
-                        analise["ligacoes_curtas"],
-                        use_container_width=True,
-                        hide_index=True,
-                    )
-                else:
-                    st.success(
-                        "Nenhuma ligação com menos de 10 segundos foi registrada."
-                    )
+    # 3. Pesquisa por Bina (Telefone)
+    busca_bina = st.sidebar.text_input("🔍 Pesquisar por Bina (Cliente):", "")
 
-                st.divider()
+    # Aplicação dos Filtros na lista em memória
+    dados_filtrados = [
+        d
+        for d in dados
+        if d["tecnico"] in tecnicos_selecionados
+        and d["status"] in status_selecionados
+        and (busca_bina.strip() == "" or busca_bina.strip() in d["bina"])
+    ]
 
-                # 3. INSIGHTS ANALÍTICOS ESTRATÉGICOS
-                st.subheader("💡 Insights Analíticos Estratégicos")
+    if not dados_filtrados:
+        st.warning("Nenhuma chamada encontrada para os filtros selecionados.")
+    else:
+        # Reanalisa os dados filtrados em tempo real
+        analise = analisar_dados(dados_filtrados)
 
-                col_left, col_right = st.columns(2)
+        # =========================================================
+        # EXIBIÇÃO DOS RESULTADOS
+        # =========================================================
 
-                with col_left:
-                    st.markdown("### 🔁 Reincidência de Clientes (Bina)")
-                    st.caption(
-                        "Clientes que ligaram mais de uma vez no período."
-                    )
+        # 1. RESUMO EXECUTIVO
+        st.subheader("📌 Resumo Executivo")
+        c1, c2, c3, c4 = st.columns(4)
 
-                    reincidencias_ordenadas = sorted(
-                        analise["reincidentes"].items(),
-                        key=lambda x: x[1],
-                        reverse=True,
-                    )
+        c1.metric(
+            "Total de Chamadas (PABX)", f"{analise['total_chamadas_bruto']}"
+        )
+        c2.metric("Atendidas por Técnicos", f"{analise['total_atendidas']}")
+        c3.metric("Tempo Total Falado", analise["tempo_total_fmt"])
+        c4.metric("TMA Médio", analise["tma_fmt"])
 
-                    if reincidencias_ordenadas:
-                        tabela_reincidencia = []
-                        for bina, qtd in reincidencias_ordenadas[:10]:
-                            # Formata a lista de datas/horas separadas por vírgula
-                            datas_str = " | ".join(
-                                analise["datas_por_cliente"][bina]
-                            )
+        st.divider()
 
-                            tabela_reincidencia.append(
-                                {
-                                    "Cliente (Bina)": bina,
-                                    "Qtd. Ligações": qtd,
-                                    "Datas / Horários das Chamadas": datas_str,
-                                    # Coluna "Tempo Acumulado" removida
-                                }
-                            )
-                        st.dataframe(
-                            tabela_reincidencia,
-                            use_container_width=True,
-                            hide_index=True,
-                        )
-                    else:
-                        st.info(
-                            "Nenhum cliente realizou chamadas repetidas no período."
-                        )
+        # 2. SEÇÃO DE LIGAÇÕES CURTAS (< 10s)
+        st.subheader("⏱️ Ligações Curtas (Menos de 10 segundos)")
+        st.caption(
+            "Chamadas encerradas rapidamente. Podem indicar quedas de linha ou enganos."
+        )
 
-                with col_right:
-                    st.markdown("### 🔀 Fragmentação no Atendimento")
-                    st.caption(
-                        "Clientes que falaram com mais de um funcionário diferente."
-                    )
+        if analise["ligacoes_curtas"]:
+            st.warning(
+                f"Foram encontradas {len(analise['ligacoes_curtas'])} ligações com menos de 10 segundos."
+            )
+            df_curtas = pd.DataFrame(analise["ligacoes_curtas"])
+            st.dataframe(df_curtas, use_container_width=True, hide_index=True)
 
-                    if analise["fragmentados"]:
-                        tabela_fragmentacao = []
-                        for bina, tecs in list(
-                            analise["fragmentados"].items()
-                        )[:10]:
-                            tabela_fragmentacao.append(
-                                {
-                                    "Cliente (Bina)": bina,
-                                    "Nº Funcionários": len(tecs),
-                                    "Funcionários": ", ".join(tecs),
-                                }
-                            )
-                        st.dataframe(
-                            tabela_fragmentacao,
-                            use_container_width=True,
-                            hide_index=True,
-                        )
-                    else:
-                        st.success(
-                            "Nenhum cliente precisou ser atendido por múltiplos funcionários."
-                        )
+            # Botão de Exportação
+            st.download_button(
+                label="📥 Exportar Ligações Curtas (CSV)",
+                data=converter_para_csv(df_curtas),
+                file_name="ligacoes_curtas.csv",
+                mime="text/csv",
+            )
+        else:
+            st.success(
+                "Nenhuma ligação com menos de 10 segundos foi registrada."
+            )
 
-                st.divider()
+        st.divider()
 
-                # 4. CHAMADAS NÃO ATENDIDAS / ABANDONADAS
-                st.subheader(
-                    "⚠️ Chamadas Não Atendidas / Fila (Diferença do PABX)"
-                )
+        # 3. INSIGHTS ANALÍTICOS ESTRATÉGICOS
+        st.subheader("💡 Insights Analíticos Estratégicos")
 
-                if analise["chamadas_abandonadas"]:
-                    st.warning(
-                        f"Encontradas {analise['total_abandonadas']} chamadas que não chegaram a ser atendidas por um técnico."
-                    )
+        col_left, col_right = st.columns(2)
 
-                    tabela_nao_atendidas = [
+        with col_left:
+            st.markdown("### 🔁 Reincidência de Clientes (Bina)")
+            st.caption("Clientes que ligaram mais de uma vez no período.")
+
+            reincidencias_ordenadas = sorted(
+                analise["reincidentes"].items(),
+                key=lambda x: x[1],
+                reverse=True,
+            )
+
+            if reincidencias_ordenadas:
+                tabela_reincidencia = []
+                for bina, qtd in reincidencias_ordenadas[:10]:
+                    datas_str = " | ".join(analise["datas_por_cliente"][bina])
+
+                    tabela_reincidencia.append(
                         {
-                            "Data/Hora": d[
-                                "data_hora"
-                            ],  # Incluído Data/Hora aqui
-                            "Telefone (Cliente/Bina)": d["bina"],
-                            "Destino/Fila": d["tecnico"],
-                            "Status PABX": d["status"],
-                            "Tempo de Espera": d["duracao"],
+                            "Cliente (Bina)": bina,
+                            "Qtd. Ligações": qtd,
+                            "Datas / Horários das Chamadas": datas_str,
                         }
-                        for d in analise["chamadas_abandonadas"]
-                    ]
-
-                    with st.expander(
-                        "🔍 Clique aqui para ver a lista completa destas chamadas"
-                    ):
-                        st.dataframe(
-                            tabela_nao_atendidas,
-                            use_container_width=True,
-                            hide_index=True,
-                        )
-                else:
-                    st.success(
-                        "Todas as chamadas do PABX foram atendidas por técnicos!"
                     )
-
-                st.divider()
-
-                # 5. RANKING DE FUNCIONÁRIOS
-                st.subheader("👨‍💻 Desempenho da Equipe")
+                df_reincidencia = pd.DataFrame(tabela_reincidencia)
                 st.dataframe(
-                    analise["ranking_tecnicos"],
+                    df_reincidencia, use_container_width=True, hide_index=True
+                )
+
+                # Botão de Exportação
+                st.download_button(
+                    label="📥 Exportar Reincidência (CSV)",
+                    data=converter_para_csv(df_reincidencia),
+                    file_name="reincidencia_clientes.csv",
+                    mime="text/csv",
+                )
+            else:
+                st.info(
+                    "Nenhum cliente realizou chamadas repetidas no período."
+                )
+
+        with col_right:
+            st.markdown("### 🔀 Fragmentação no Atendimento")
+            st.caption(
+                "Clientes que falaram com mais de um funcionário diferente."
+            )
+
+            if analise["fragmentados"]:
+                tabela_fragmentacao = []
+                for bina, tecs in list(analise["fragmentados"].items())[:10]:
+                    tabela_fragmentacao.append(
+                        {
+                            "Cliente (Bina)": bina,
+                            "Nº Funcionários": len(tecs),
+                            "Funcionários": ", ".join(tecs),
+                        }
+                    )
+                df_fragmentados = pd.DataFrame(tabela_fragmentacao)
+                st.dataframe(
+                    df_fragmentados, use_container_width=True, hide_index=True
+                )
+
+                # Botão de Exportação
+                st.download_button(
+                    label="📥 Exportar Fragmentação (CSV)",
+                    data=converter_para_csv(df_fragmentados),
+                    file_name="fragmentacao_atendimento.csv",
+                    mime="text/csv",
+                )
+            else:
+                st.success(
+                    "Nenhum cliente precisou ser atendido por múltiplos funcionários."
+                )
+
+        st.divider()
+
+        # 4. CHAMADAS NÃO ATENDIDAS / ABANDONADAS
+        st.subheader("⚠️ Chamadas Não Atendidas / Fila (Diferença do PABX)")
+
+        if analise["chamadas_abandonadas"]:
+            st.warning(
+                f"Encontradas {analise['total_abandonadas']} chamadas que não chegaram a ser atendidas por um técnico."
+            )
+
+            tabela_nao_atendidas = [
+                {
+                    "Data/Hora": d["data_hora"],
+                    "Telefone (Cliente/Bina)": d["bina"],
+                    "Destino/Fila": d["tecnico"],
+                    "Status PABX": d["status"],
+                    "Tempo de Espera": d["duracao"],
+                }
+                for d in analise["chamadas_abandonadas"]
+            ]
+            df_nao_atendidas = pd.DataFrame(tabela_nao_atendidas)
+
+            with st.expander(
+                "🔍 Clique aqui para ver a lista completa destas chamadas"
+            ):
+                st.dataframe(
+                    df_nao_atendidas,
                     use_container_width=True,
                     hide_index=True,
                 )
 
-        except Exception as e:
-            st.error(f"Erro ao processar a consulta: {e}")
+                # Botão de Exportação
+                st.download_button(
+                    label="📥 Exportar Chamadas Abandonadas (CSV)",
+                    data=converter_para_csv(df_nao_atendidas),
+                    file_name="chamadas_abandonadas.csv",
+                    mime="text/csv",
+                )
+        else:
+            st.success(
+                "Todas as chamadas do PABX foram atendidas por técnicos!"
+            )
+
+        st.divider()
+
+        # 5. RANKING DE FUNCIONÁRIOS
+        st.subheader("👨‍💻 Desempenho da Equipe")
+        df_ranking = pd.DataFrame(analise["ranking_tecnicos"])
+        st.dataframe(df_ranking, use_container_width=True, hide_index=True)
+
+        # Botão de Exportação
+        st.download_button(
+            label="📥 Exportar Ranking de Desempenho (CSV)",
+            data=converter_para_csv(df_ranking),
+            file_name="desempenho_equipe.csv",
+            mime="text/csv",
+        )
