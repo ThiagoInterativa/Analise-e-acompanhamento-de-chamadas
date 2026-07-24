@@ -164,33 +164,31 @@ def buscar_cdr(data_inicio, data_fim, progress_ui=None):
 # PROCESSAMENTO DE KPIS E INSIGHTS
 # =========================================================
 def analisar_dados(dados):
-    # Total Bruto de chamadas capturadas do PABX
     total_chamadas_bruto = len(dados) 
     
     if total_chamadas_bruto == 0:
         return None
 
-    # Chamadas efetivamente atendidas por um técnico
+    # Separamos em 2 grupos:
+    # A) Chamadas que foram atendidas por um Técnico/Ramal
     dados_validos = [d for d in dados if "Fila" not in d["tecnico"]]
-    total_atendidas_tecnicos = len(dados_validos)
     
-    # [CORREÇÃO]: Soma de segundos calculada antes da conversão para texto
+    # B) Chamadas que ficaram na Fila / Não foram atendidas (A diferença!)
+    chamadas_abandonadas = [d for d in dados if "Fila" in d["tecnico"]]
+
+    total_atendidas_tecnicos = len(dados_validos)
     segundos_totais = sum(d["segundos"] for d in dados_validos)
 
-    # Formatação de Tempo Total acumulado
     horas = int(segundos_totais // 3600)
     minutos = int((segundos_totais % 3600) // 60)
     tempo_total_fmt = f"{horas}h {minutos}m"
 
-    # Cálculo do Tempo Médio de Atendimento (TMA)
     tma_seg = int(round(segundos_totais / total_atendidas_tecnicos)) if total_atendidas_tecnicos > 0 else 0
     tma_fmt = f"{tma_seg // 60:02d}:{tma_seg % 60:02d}"
 
-    # LÓGICA DE REINCIDÊNCIA: Contagem por telefone cliente (Bina)
     contagem_clientes = Counter([d["bina"] for d in dados_validos if d["bina"]])
     clientes_reincidentes = {k: v for k, v in contagem_clientes.items() if v > 1}
 
-    # Identificação de chamadas curtas (< 10s)
     ligacoes_curtas = [
         {
             "Telefone (Bina)": d["bina"],
@@ -201,7 +199,6 @@ def analisar_dados(dados):
         for d in dados_validos if d["segundos"] < 10
     ]
 
-    # Mapeamento para avaliar Fragmentação do atendimento
     tecnicos_por_cliente = defaultdict(set)
     tempo_por_cliente = defaultdict(int)
 
@@ -214,7 +211,6 @@ def analisar_dados(dados):
         cli: list(tecs) for cli, tecs in tecnicos_por_cliente.items() if len(tecs) > 1
     }
 
-    # Desempenho individual dos funcionários
     desempenho_tecnicos = defaultdict(lambda: {"chamadas": 0, "segundos": 0})
     for d in dados_validos:
         tec = d["tecnico"]
@@ -233,10 +229,11 @@ def analisar_dados(dados):
 
     ranking_tecnicos.sort(key=lambda x: x["Total Chamadas"], reverse=True)
 
-    # [CORREÇÃO]: Retorno correto das variáveis atualizadas
     return {
         "total_chamadas_bruto": total_chamadas_bruto,
         "total_atendidas": total_atendidas_tecnicos,
+        "total_abandonadas": len(chamadas_abandonadas),
+        "chamadas_abandonadas": chamadas_abandonadas,  # <--- Nova lista com as 16 chamadas
         "tempo_total_fmt": tempo_total_fmt,
         "tma_fmt": tma_fmt,
         "contagem_clientes": contagem_clientes,
@@ -348,7 +345,32 @@ if submit:
                         st.success("Nenhum cliente precisou ser atendido por múltiplos funcionários.")
 
                 st.divider()
+# Adicione este bloco no seu código na área de exibição de resultados:
 
+st.divider()
+
+# Exibe as chamadas não atendidas / abandonadas (A diferença do PABX)
+st.subheader("⚠️ Chamadas Não Atendidas / Fila (Diferença do PABX)")
+
+if analise["chamadas_abandonadas"]:
+    st.warning(f"Encontradas {analise['total_abandonadas']} chamadas que não chegaram a ser atendidas por um técnico.")
+    
+    # Prepara a tabela para exibição amigável
+    tabela_nao_atendidas = [
+        {
+            "Telefone (Cliente/Bina)": d["bina"],
+            "Destino/Fila": d["tecnico"],
+            "Status PABX": d["status"],
+            "Tempo de Espera": d["duracao"]
+        }
+        for d in analise["chamadas_abandonadas"]
+    ]
+    
+    with st.expander("🔍 Clique aqui para ver a lista completa destas chamadas"):
+        st.dataframe(tabela_nao_atendidas, use_container_width=True)
+else:
+    st.success("Todas as chamadas do PABX foram atendidas por técnicos!")
+    
                 # 4. RANKING DE FUNCIONÁRIOS
                 st.subheader("👨‍💻 Desempenho da Equipe")
                 st.table(analise["ranking_tecnicos"])
