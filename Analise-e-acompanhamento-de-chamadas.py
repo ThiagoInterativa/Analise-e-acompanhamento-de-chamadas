@@ -1,9 +1,13 @@
-import streamlit as st
-import requests
-from bs4 import BeautifulSoup
-from datetime import datetime
+import io
 import time
 from collections import Counter, defaultdict
+from datetime import datetime
+import bs4
+from bs4 import BeautifulSoup
+import pandas as pd
+import requests
+import streamlit as st
+
 
 st.set_page_config(
     page_title="Análise de Chamadas",
