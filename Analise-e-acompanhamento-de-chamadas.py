@@ -166,15 +166,16 @@ def buscar_cdr(data_inicio, data_fim, progress_ui=None):
 # PROCESSAMENTO DE KPIS E INSIGHTS
 # =========================================================
 def analisar_dados(dados):
-    total_chamadas = len(dados)
-    if total_chamadas == 0:
+    # Total Bruto (Bate 100% com o painel do PABX)
+    total_chamadas_bruto = len(dados) 
+    
+    if total_chamadas_bruto == 0:
         return None
 
-    # LÓGICA MANTIDA: Filtra chamadas ignorando as que ficaram paradas na "Fila"
+    # Chamadas efetivamente atendidas por um técnico (para cálculo do TMA e Desempenho)
     dados_validos = [d for d in dados if "Fila" not in d["tecnico"]]
+    total_atendidas_tecnicos = len(dados_validos)
     
-    segundos_totais = sum(d["segundos"] for d in dados_validos)
-
     # Formatação de Tempo Total acumulado
     horas = int(segundos_totais // 3600)
     minutos = int((segundos_totais % 3600) // 60)
@@ -282,18 +283,15 @@ if submit:
                 analise = analisar_dados(dados)
 
                 # 1. RESUMO EXECUTIVO
+
                 st.subheader("📌 Resumo Executivo")
                 c1, c2, c3, c4 = st.columns(4)
-                
-                c1.metric("Valor Total de Ligações", f"{analise['total_chamadas']} chamadas")
-                c2.metric("Tempo Total em Ligação", analise["tempo_total_fmt"])
-                c3.metric("TMA Geral", analise["tma_fmt"])
-                
-                pct_reincidencia = (len(analise["reincidentes"]) / len(analise["contagem_clientes"])) * 100 if analise["contagem_clientes"] else 0
-                c4.metric("Taxa de Reincidência", f"{pct_reincidencia:.1f}%")
 
-                st.divider()
-
+# Exibe o Total do PABX e quantas foram direcionadas a técnicos
+                c1.metric("Total de Chamadas (PABX)", f"{analise['total_chamadas']} chamadas")
+                c2.metric("Chamadas Atendidas", f"{len([d for d in dados if 'Fila' not in d['tecnico']])}")
+                
+                
                 # 2. SEÇÃO DE LIGAÇÕES CURTAS (< 10s)
                 st.subheader("⏱️ Ligações Curtas (Menos de 10 segundos)")
                 st.caption("Chamadas encerradas rapidamente. Podem indicar quedas de linha ou enganos.")
