@@ -12,6 +12,7 @@ cdr_url = "https://pabx.evence.com.br/cdr/pesquisar"
 email = "suporte@interativanet.com.br"
 senha = "smk03657"
 
+
 # =========================================================
 # SESSÃO REUTILIZÁVEL (Evita múltiplos logins no servidor PABX)
 # =========================================================
