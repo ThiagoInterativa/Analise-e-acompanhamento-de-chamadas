@@ -337,40 +337,61 @@ if submit:
 
                 st.divider()
 
-                # 3. INSIGHTS ANALÍTICOS ESTRATÉGICOS
-                st.subheader("💡 Insights Analíticos Estratégicos")
+                # 3. INSIGHTS ANALÍTICOS ESTRATÉGICOS# =========================================================
+# INSIGHTS ANALÍTICOS ESTRATÉGICOS (TRECHO ATUALIZADO)
+# =========================================================
+st.subheader("💡 Insights Analíticos Estratégicos")
 
-                col_left, col_right = st.columns(2)
+col_left, col_right = st.columns(2)
 
-                with col_left:
-                    st.markdown("### 🔁 Reincidência de Clientes (Bina)")
-                    st.caption("Clientes que ligaram mais de uma vez no período.")
-                    
-                    reincidencias_ordenadas = sorted(
-                        analise["reincidentes"].items(), key=lambda x: x[1], reverse=True
-                    )
+with col_left:
+    st.markdown("### 🔁 Reincidência de Clientes (Bina)")
+    st.caption("Clientes que ligaram mais de uma vez no período.")
+    
+    reincidencias_ordenadas = sorted(
+        analise["reincidentes"].items(), key=lambda x: x[1], reverse=True
+    )
 
-                    if reincidencias_ordenadas:
-                        tabela_reincidencia = []
-                        for bina, qtd in reincidencias_ordenadas[:10]:
-                            seg_totais = analise["tempo_por_cliente"][bina]
-                            # Formata a lista de datas/horas separadas por vírgula e quebra de linha
-                            datas_str = " | ".join(analise["datas_por_cliente"][bina])
-                            
-                            tabela_reincidencia.append({
-                                "Cliente (Bina)": bina,
-                                "Qtd. Ligações": qtd,
-                                "Datas / Horários das Chamadas": datas_str,  # <--- Coluna exibida na tabela
-                                "Tempo Acumulado": f"{seg_totais // 3600:02d}:{(seg_totais % 3600) // 60:02d}"
-                            })
-                        st.dataframe(
-                            tabela_reincidencia, 
-                            use_container_width=True, 
-                            hide_index=True
-                        )
-                    else:
-                        st.info("Nenhum cliente realizou chamadas repetidas no período.")
+    if reincidencias_ordenadas:
+        tabela_reincidencia = []
+        for bina, qtd in reincidencias_ordenadas[:10]:
+            # Formata a lista de datas/horas separadas por vírgula e quebra de linha
+            datas_str = " | ".join(analise["datas_por_cliente"][bina])
+            
+            tabela_reincidencia.append({
+                "Cliente (Bina)": bina,
+                "Qtd. Ligações": qtd,
+                "Datas / Horários das Chamadas": datas_str
+                # Coluna "Tempo Acumulado" removida com sucesso
+            })
+        st.dataframe(
+            tabela_reincidencia, 
+            use_container_width=True, 
+            hide_index=True
+        )
+    else:
+        st.info("Nenhum cliente realizou chamadas repetidas no período.")
 
+with col_right:
+    st.markdown("### 🔀 Fragmentação no Atendimento")
+    st.caption("Clientes que falaram com mais de um funcionário diferente.")
+
+    if analise["fragmentados"]:
+        tabela_fragmentacao = []
+        for bina, tecs in list(analise["fragmentados"].items())[:10]:
+            tabela_fragmentacao.append({
+                "Cliente (Bina)": bina,
+                "Nº Funcionários": len(tecs),
+                "Funcionários": ", ".join(tecs)
+            })
+        st.dataframe(
+            tabela_fragmentacao, 
+            use_container_width=True, 
+            hide_index=True
+        )
+    else:
+        st.success("Nenhum cliente precisou ser atendido por múltiplos funcionários.")
+        
                 with col_right:
                     st.markdown("### 🔀 Fragmentação no Atendimento")
                     st.caption("Clientes que falaram com mais de um funcionário diferente.")
